@@ -1,3 +1,4 @@
+
 #include <mysql++/mysql++.h>
 #include <string>
 #include <vector>
@@ -6,14 +7,19 @@
 #include <json/json.h>
 
 
-bool mysql2json(const mysqlpp::UseQueryResult& uqr, Json::Value& val, int count)
+#define ARRAY_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
+
+/**
+ * @count is the number of rows to fetch, @count<0 means fetch all rows int @uqr
+ */
+bool mysql2json(const mysqlpp::UseQueryResult& uqr, Json::Value& list, int count)
 {
 	enum {
 		T_INT = 1,
 		T_FLOAT = 2,
 		T_STRING = 3,
 	};
-	static const char* int_name[] = {
+	static const char* int_arr[] = {
 		"TINYINT",
 		"SMALLINT",
 		"MEDIUMINT",
@@ -21,52 +27,54 @@ bool mysql2json(const mysqlpp::UseQueryResult& uqr, Json::Value& val, int count)
 		"INTEGER",
 		"BIGINT"
 	};
-	std::vector<string> ints(int_type, int_type+sizeof(int_type)/sizeof(int_type[0]));
-	static const char* float_type[] = {
+	std::vector<std::string> ints(int_arr, int_arr+ARRAY_SIZE(int_arr));
+	static const char* float_arr[] = {
 		"FLOAT",
 		"DOUBLE",
 		"DECIMAL"
 	};
-	std::vector<string> floats(float_type, float_type+sizeof(float_type)/sizeof(float_type[0]));
+	std::vector<std::string> floats(float_arr, float_arr+ARRAY_SIZE(float_arr));
 
 	try {
-		std::vector<string> name_vector;
-		std::vector<int> type_vector;
+		std::vector<std::string> field_names;
+		std::vector<int> field_types;
 
+		/* fetch fields' name and value type */
 		for (int i = 0; i < uqr.num_fields(); ++i) {
 			const mysqlpp::Field& f = uqr.fetch_field(i);
-			string name = f.name();
-			string type = f.type().sql_name();
+			std::string name = f.name();
+			std::string type = f.type().sql_name();
 			type = type.substr(0, type.find(" "));
 
-			name_vector.push_back(name);
+			field_names.push_back(name);
 			if (std::find(ints.begin(), ints.end(), type) != ints.end()) {
-				type_vector.push_back(T_INT);
+				field_types.push_back(T_INT);
 			} else if (std::find(floats.begin(), floats.end(), type) != floats.end()) {
-				type_vector.push_back(T_FLOAT);
+				field_types.push_back(T_FLOAT);
 			} else {
-				type_vector.push_back(T_STRING);
+				field_types.push_back(T_STRING);
 			}
 		}
 
+		/* fetch rows and build a json list object */
 		mysqlpp::Row row;
 		while (row=uqr.fetch_row()) {
 			if (0 == count) {
 				break;
 			}
-			Json::Value a;
+			Json::Value val;
 			for (int i = 0; i < row.size(); ++i) {
-				string name = name_vector[i];
-				int type = type_vector[i];
+				std::string name = field_names[i];
+				int type = field_types[i];
 				if (type == T_INT) {
-					a[name] = (int)row[i];
+					val[name] = (int)row[i];
 				} else if (type == T_FLOAT) {
-					a[name] = (float)row[i];
+					val[name] = (float)row[i];
 				} else if (type == T_STRING) {
-					a[name] = (string)row[i];
+					val[name] = (std::string)row[i];
 				}
 			}
-			val.append(a);
+			list.append(val);
 			--count;
 		}
 	} catch (mysqlpp::OptionalExceptions ex) {
